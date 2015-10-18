@@ -19,3 +19,4 @@ for i in ${DB1} ${DB2}
 	logger "uploaded ${i} dump to s3://org-dbbackup/mongo/"
 	done
 mv $DUMPDIR/*.gz $ARCHIVEDIR/
+find $ARCHIVEDIR/* -mtime +120 -delete
