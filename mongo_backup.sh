@@ -1,7 +1,7 @@
 #!/bin/bash
 #Purpose To take dump of  database1 and database2 database backup
 #Author Devops Team (Rajesh)
-#Lats updated  18 oct 2015
+#Last updated  18 oct 2015
 
 DUMPDIR=/usr/share/org/mongo_dump
 ARCHIVEDIR=/usr/share/org/mongo_dump/archive
