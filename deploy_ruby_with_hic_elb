@@ -1,0 +1,189 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: 
+# Required-Start: $remote_fs $syslog
+# Required-Stop: $remote_fs $syslog
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Ruby app service
+# Description: This file starts and stops a ruby app
+# 
+### END INIT INFO
+
+APPNAME="<%= scope.lookupvar('appname') -%>"
+PORT="<%= scope.lookupvar('passenger_port') -%>"
+APPENV="<%= scope.lookupvar('appenv') -%>"
+PASS_MAX_POOL_SIZE="<%= scope.lookupvar('passenger_max_pool_size') -%>"
+PASS_MIN_INSTANCES="<%= scope.lookupvar('passenger_min_instances') -%>"
+CURL_CLIENT_HEADER="<%= scope.lookupvar('curl_client_header') -%>"
+
+case "$1" in
+ start)
+        su -l deploy -c "cd /usr/share/$PATH/$APPNAME* && RAILS_ENV=$APPENV passenger start -p $PORT -d $PASS_MAX_POOL_SIZE $PASS_MIN_INSTANCES"
+        echo "$APPNAME started"
+   ;;
+ stop)
+        su -l deploy -c "cd /usr/share/$PATH/$APPNAME*  && RAILS_ENV=$APPENV passenger stop -p $PORT"
+        echo "$APPNAME stoped"
+   ;;
+ restart)
+        su -l deploy -c "cd /usr/share/$PATH/$APPNAME*  ; RAILS_ENV=$APPENV passenger stop -p $PORT ; RAILS_ENV=$APPENV passenger start -p $PORT -d $PASS_MAX_POOL_SIZE $PASS_MIN_INSTANCES"
+        echo "$APPNAME restarted"
+   ;;
+  deploy)
+#Checking numnber of Healthy instance copunt. If less then 2 then exit
+HIC=$(for j in $(aws elb describe-load-balancers | jq -r '.LoadBalancerDescriptions[] | select((.Instances | length) >= 0) | [.LoadBalancerName, (.Instances | length), .Instances[].InstanceId] | @csv' | grep $(curl -s http://169.254.169.254/latest/meta-data/instance-id) | awk -F',' '{print $1}' | sed -e 's/"//g'); do aws elb describe-instance-health --load-balancer-name $j | jq  '.InstanceStates[].State' | grep -c InService ; done)
+
+function hic_count() {
+ for i in $HIC
+ do
+ if [ $i -ge 2 ];then
+ HIC=2
+ else
+ echo "Healthy instance COUNT in  ELB are less then 2. Please Check!"
+ exit
+ fi
+done
+}
+hic_count
+
+function schedule_cron() {
+/usr/bin/env ruby <<-EORUBY
+ 
+require 'json'
+require 'facter'
+#file = File.read('/usr/share/$PATH/*/appmetadata.json')
+appmetadatafile = "/usr/share/$PATH/appmetadata.json"
+hostname = "`hostname`".strip
+cronfile = "/var/spool/cron/crontabs/deploy"
+#File.open("#{cronfile}") if File::exists?( "#{cronfile}")
+
+if File.exist?('/usr/share/$PATH/appmetadata.json')
+files = Dir[appmetadatafile].select {|x| x =~ /appmetadata.json/ }
+
+file = File.read(files.join(" "))
+data_hash = JSON.parse(file)
+
+appname = data_hash["appmetadata"]["appname"].gsub("-", "_")
+#appname = data_hash["appmetadata"]["appname"].tr!('-','_') 
+currentappversion = data_hash["appmetadata"]["to_be_deployed_tag"]
+lastappversion = data_hash["appmetadata"]["deployed_tag"]
+puts "#{appname}"
+out_file = File.new("#{cronfile}", "w")
+#puts "#{appname}\n"
+crontask = data_hash["appmetadata"]["crontasks"]
+        if !crontask.nil?
+        data_hash["appmetadata"]["crontasks"].each do |k,v|
+           if hostname == k
+                v.each do |key,value|
+                out_file.puts("#{value}")
+                #puts "schduled #{value}"
+                #system "grep -q -F '#{value}\n' #{cronfile} || echo '#{value}\n' >> #{cronfile}"
+                puts "schduled #{value} on #{hostname}"
+                end
+            end
+            end
+        else
+        puts "There are NO Crontask for this app in appmetadata.json"
+        end
+else
+puts "No appmetadata.json file found in /usr/share/$PATH"
+end
+EORUBY
+}
+
+function oor() {
+#Taking the machine  OutOfService from ELB
+hic_count
+if [ -e /usr/share/$PATH/elbcheck/elbenabled.html ] && [ $HIC -ge 2 ] ; then
+echo "Bringing the machine OutOfService from ELB. Hold for 30 Sec"
+mv /usr/share/$PATH/elbcheck/elbenabled.html /usr/share/$PATH/elbcheck/elbenabled.html.bak
+sleep 30
+echo "Done."
+else
+echo "This box is already out of ELB, since HealthCHeck file /usr/share/$PATH/elbcheck/elbenabled.html do not exist. Kindly check"
+exit
+fi
+}
+
+
+#echo "Checking for request in passenger queue"
+NUMOFREQ=`passenger-status  | grep "Requests in queue:" | awk '{print $4}'`
+
+first_deploy () {
+service $APPNAME stop 
+echo "Running puppet agent"
+touch /usr/share/$PATH/deploy
+puppet agent -t
+su -l deploy -c "cd /usr/share/$PATH/$APPNAME* ; RAILS_ENV=$APPENV bundle exec rake db:create" &&  su -l deploy -c  "cd /usr/share/$PATH/$APPNAME* ; RAILS_ENV=$APPENV bundle exec rake db:migrate"
+service $APPNAME start
+}
+
+deploy () {
+if [ "$NUMOFREQ"  == "0" ]; then
+echo "Stoping $APPNAME"
+service $APPNAME stop 
+#su -l deploy -c "cd /usr/share/$PATH/$APPNAME*  && RAILS_ENV=$APPENV passenger stop -p $PORT"
+echo "Running puppet agent"
+touch /usr/share/$PATH/deploy
+puppet agent -t
+su -l deploy -c "cd /usr/share/$PATH/$APPNAME* ; RAILS_ENV=$APPENV bundle exec rake db:create" &&  su -l deploy -c  "cd /usr/share/$PATH/$APPNAME* ; RAILS_ENV=$APPENV bundle exec rake db:migrate"
+service $APPNAME start
+else
+echo "Requests are pending in Passenger queue. Please retry in some time"
+fi
+}
+
+health_check () {
+HTTP_STATUS=$(curl -s  -I  $CURL_CLIENT_HEADER  localhost/health-check | awk  'NR==1{print $2}')
+if [ "$HTTP_STATUS" -eq 200  ] &&  [ -e /usr/share/$PATH/elbcheck/elbenabled.html.bak ]; then
+echo "Adding box back to elb"
+mv /usr/share/$PATH/elbcheck/elbenabled.html.bak /usr/share/$PATH/elbcheck/elbenabled.html
+rm /usr/share/$PATH/deploy
+echo "added box back to elb"
+else 
+echo "CURL call failed. Box is OutOfService from ELB. Please check then Proceed"
+fi
+}
+
+if [ -z "$HIC" ]; then  echo "This box is not in any elb. Please check"
+ read -p "Do you still want to Deploy (y/n)?" choice
+ case "$choice" in 
+  y|Y ) 
+	first_deploy
+	schedule_cron
+	health_check;;
+  n|N ) echo "no";;
+  * ) echo "invalid";;
+esac
+exit
+fi
+
+for i in $HIC; do  if [ $i -lt 2 ]; then echo "Registered instance count in ELB is less then Two. Please check" ; exit ; fi  ; done
+if [ ! -f /usr/share/$PATH/elbcheck/elbenabled.html ]; then
+    echo "Missing /usr/share/$PATH/elbcheck/elbenabled.html.Hence this box is out of service. Please check"
+    read -p "Do you still want to Deploy (y/n)?" choice
+  case "$choice" in
+  y|Y )
+        first_deploy
+        schedule_cron
+        health_check;;
+  n|N ) echo "no";;
+  * ) echo "invalid";;
+esac
+exit
+fi
+
+if [ -e /usr/share/$PATH/elbcheck/elbenabled.html ] && [ $HIC -ge 2 ] ; then
+oor
+deploy
+schedule_cron
+health_check
+fi
+  ;;
+ *)
+   echo "Usage: $0 {start|stop|restart|deploy}" >&2
+   exit 3
+   ;;
+esac
