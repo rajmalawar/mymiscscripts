@@ -1,0 +1,69 @@
+#!/usr/bin/python
+oimport logging
+import sys
+import os
+import re
+import subprocess
+import string
+from subprocess import Popen, PIPE # , call
+from jira.client import JIRA
+import optparse
+
+scriptName = os.path.basename(sys.argv[0])
+
+JIRA_URL = 'https://xxxxx.atlassian.net'
+USERNAME = 'xxxx'
+PASSWORD = 'xxxx'
+JIRA_FIXED = 'Done'
+allowed_jira_states_for_exit0 = ['In Progress']
+allowed_jira_issuetype_for_exit0 = ['Configuration management', 'Production deployments', 'QA Deployments']
+allowed_jira_project_for_exit0 = ['Devops']
+# Change this value to "CRITICAL/ERROR/WARNING/INFO/DEBUG/NOTSET"
+# as appropriate.
+loglevel=logging.debug#loglevel=logging.debug
+logging.captureWarnings(True)
+
+#issuekey = "dev-xxx"
+parser = optparse.OptionParser()
+parser.add_option('-j', '--jira', 
+                  dest="issuekey", 
+                  )
+options, remainder = parser.parse_args()
+if not options.issuekey :
+      parser.error('Jira not given')
+issuekey = options.issuekey
+#-----------------------------------------------------------------------------
+# Miscellaneous Jira related utility functions
+#
+def connect_to_jira():
+    jira_options = { 'server': JIRA_URL}
+
+    try:
+        jira = JIRA(options=jira_options, basic_auth=(USERNAME, PASSWORD))
+    except Exception as e:
+        jira = None
+
+    return jira
+
+
+
+### Jira check code #######
+jira = connect_to_jira()
+
+if jira == None:
+        exit(1)
+
+if str(jira.issue(issuekey).fields.status) == JIRA_FIXED or str(jira.issue(issuekey).raw['fields']['status']['statusCategory']['name']) not in allowed_jira_states_for_exit0 or str(jira.issue(issuekey).raw['fields']['issuetype']['name']) not in allowed_jira_issuetype_for_exit0 or str(jira.issue(issuekey).raw['fields']['project']['name']) not in allowed_jira_project_for_exit0 :
+
+    if str(jira.issue(issuekey).fields.status) == JIRA_FIXED or str(jira.issue(issuekey).raw['fields']['status']['statusCategory']['name']) not in allowed_jira_states_for_exit0:
+            logging.error("Jira issue %s should be in one of following states [%s] \n:::: ¯\_(ツ)_/¯ ::::\nBut current state is '%s'", issuekey, str(allowed_jira_states_for_exit0), str(jira.issue(issuekey).raw['fields']['status']['statusCategory']['name']) )
+
+    if str(jira.issue(issuekey).raw['fields']['issuetype']['name']) not in allowed_jira_issuetype_for_exit0:
+            logging.error("Jira issue %s should be from following issuetypes [%s] for exit0 acceptance \n:::: ¯\_(ツ)_/¯ ::::\nBut current issuetype is '%s' ", issuekey, str(allowed_jira_issuetype_for_exit0) , str(jira.issue(issuekey).raw['fields']['issuetype']['name'])    )
+
+    if str(jira.issue(issuekey).raw['fields']['project']['name']) not in allowed_jira_project_for_exit0:
+            logging.error("Jira issue %s should be from following project [%s] for exit0 acceptance \n:::: ¯\_(ツ)_/¯ ::::\nBut current project is '%s' ", issuekey, str(allowed_jira_project_for_exit0) , str(jira.issue(issuekey).raw['fields']['project']['name'])    )
+    exit(1)
+else:
+    print('Jira check succeded')
+    exit(0)
