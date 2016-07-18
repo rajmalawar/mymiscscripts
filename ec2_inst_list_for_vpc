@@ -1,0 +1,18 @@
+#!/usr/bin/env python
+import boto
+import boto.ec2
+
+REGION="ap-southeast-1"
+#conn = boto.ec2.connect_to_region(REGION,aws_access_key_id,aws_secret_access_key)
+conn = boto.ec2.connect_to_region(REGION)
+print "List of  all instances in stage vpc"
+reservations = conn.get_all_instances(filters={'vpc_id':'vpc-XXXXXXXXX'})
+
+
+for item in reservations:
+	instances = item.instances
+	for instance in instances:
+		print instance.tags['Name'],"/",instance.private_dns_name,"is",instance.state, '\n'
+
+###Cron schedule for it 
+####0 1 * * 1 /usr/bin/python /usr/share/ec2_stage_vpc.py > /usr/share/ec2_instance_list.txt && /bin/echo "Attached file has ec2 instances list in vpc" | /usr/bin/mailx -s "EC2 instances in  VPC for the date $(date +\%d-\%m-\%Y)" -A /usr/share/ec2_instance_list.txt rajmalawar@gmail.com  && /usr/bin/logger "ec2_stage_vpc.py ran successfully"
