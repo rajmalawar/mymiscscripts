@@ -15,4 +15,4 @@ for item in reservations:
 		print instance.tags['Name'],"/",instance.private_dns_name,"is",instance.state, '\n'
 
 ###Cron schedule for it 
-####0 1 * * 1 /usr/bin/python /usr/share/ec2_stage_vpc.py > /usr/share/ec2_instance_list.txt && /bin/echo "Attached file has ec2 instances list in vpc" | /usr/bin/mailx -s "EC2 instances in  VPC for the date $(date +\%d-\%m-\%Y)" -A /usr/share/ec2_instance_list.txt rajmalawar@gmail.com  && /usr/bin/logger "ec2_stage_vpc.py ran successfully"
+####0 1 * * 1 /usr/bin/python /usr/share/ec2_stage_vpc.py > /usr/share/ec2_instance_list.txt && /bin/echo "Attached file has ec2 instances list in vpc" | /usr/bin/mailx -s "EC2 instances in  VPC for the date $(date +\%d-\%m-\%Y)"  -a "From: rajmalawar@gmail.com" -A /usr/share/ec2_instance_list.txt rajmalawar@gmail.com  && /usr/bin/logger "ec2_stage_vpc.py ran successfully"
