@@ -3,9 +3,9 @@ require 'open-uri'
 
 #$::aws_key = hiera('aws_id')
 #$::aws_secret = hiera('aws_secret')
-server_region = "ap-southeast-1XXX"
+server_region = "XXX"
 
-my_region = "ap-southeast-1"
+my_region = "XXXXX"
 my_instanceid = open('http://169.254.169.254/latest/meta-data/instance-id/').read
 my_aws_key =  'XXXXXXX'
 my_aws_secret = 'XXXXXXXX'
